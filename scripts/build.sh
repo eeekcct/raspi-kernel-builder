@@ -66,7 +66,10 @@ km "$DEFCONFIG"
   --disable LOCALVERSION_AUTO --set-str LOCALVERSION "$LOCALVERSION"
 km olddefconfig
 python3 "$HERE/verify-config.py" "$OBJ/.config"
-RELEASE=$(make -s --no-print-directory -C "$SRC" O="$OBJ" ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- kernelrelease)
+# olddefconfig can leave auto.conf/kernel.release from the original defconfig.
+# Refresh generated headers before recording the identity used by modules_install.
+km prepare
+RELEASE=$(<"$OBJ/include/config/kernel.release")
 [[ "$RELEASE" =~ ^[A-Za-z0-9._+-]+$ ]] || fail 'Unexpected kernel release string.'
 DEST="$OUTPUT_DIR/$RELEASE-$DEFCONFIG"
 mkdir -p "$DEST"
@@ -84,11 +87,13 @@ if [[ "$MODE" == configure ]]; then
 fi
 
 km -j"$JOBS" Image.gz modules dtbs
+[[ $(<"$OBJ/include/config/kernel.release") == "$RELEASE" ]] || fail 'Kernel release changed during compilation.'
 # pipefail catches a failed readelf as well as a missing BTF section.
 aarch64-linux-gnu-readelf -SW "$OBJ/vmlinux" | grep -F ' .BTF ' > "$DEST/btf-section.txt"
 STAGE=$(mktemp -d "$WORK_DIR/package.XXXXXX")
 trap 'rm -rf -- "$STAGE"' EXIT
 km INSTALL_MOD_PATH="$STAGE" INSTALL_MOD_STRIP=1 modules_install
+[[ -d "$STAGE/lib/modules/$RELEASE" ]] || fail 'Installed module directory does not match recorded kernel release.'
 # Do not distribute build-machine-only links.
 rm -f -- "$STAGE/lib/modules/$RELEASE/build" "$STAGE/lib/modules/$RELEASE/source"
 mkdir -p "$STAGE/boot/overlays" "$STAGE/build-metadata"
