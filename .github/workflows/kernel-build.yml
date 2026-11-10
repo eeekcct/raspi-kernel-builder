@@ -27,7 +27,7 @@ concurrency:
 
 jobs:
   kernel-build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
       DOCKER_BUILDKIT: '1'
