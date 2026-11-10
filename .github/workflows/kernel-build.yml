@@ -1,0 +1,88 @@
+name: Kernel build
+
+on:
+  pull_request:
+    paths:
+      - Dockerfile
+      - kernel.commit
+      - scripts/**
+      - tests/**
+      - .github/workflows/kernel-build.yml
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - kernel.commit
+      - scripts/**
+      - tests/**
+      - .github/workflows/kernel-build.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kernel-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kernel-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      DOCKER_BUILDKIT: '1'
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Record runner resources
+        run: |
+          uname -a
+          nproc
+          free -h
+          df -h .
+          docker version
+
+      - name: Test scripts
+        run: |
+          bash -n scripts/build.sh
+          python3 -m unittest discover -s tests -v
+
+      - name: Build toolchain image
+        run: docker build --progress=plain -t raspi-kernel-builder .
+
+      - name: Resolve and verify kernel configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          docker run --rm \
+            --mount type=volume,source=raspi-kernel-cache,target=/work \
+            --mount "type=bind,source=$PWD/out,target=/out" \
+            raspi-kernel-builder configure 2>&1 | tee configure.log
+
+      - name: Compile and package ARM64 kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm -e JOBS="$(nproc)" \
+            --mount type=volume,source=raspi-kernel-cache,target=/work \
+            --mount "type=bind,source=$PWD/out,target=/out" \
+            raspi-kernel-builder build 2>&1 | tee build.log
+          for directory in out/*/; do
+            (cd "$directory" && sha256sum -c ./*.sha256)
+          done
+
+      - name: Save logs and configuration
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: kernel-build-diagnostics
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            configure.log
+            build.log
+            out/**/kernel.config
+            out/**/build-info.txt
+            out/**/btf-section.txt

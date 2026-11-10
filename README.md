@@ -5,10 +5,10 @@ Docker内だけにツールを入れ、ARM64 Raspberry Pi用カーネルを作�
 
 ## 検証状況
 
-- Bash構文検査とPython標準ライブラリの9テスト: 実行済み・成功。
-- Dockerイメージビルド: 実行を試みたが、作成環境にDocker daemon接続がなく失敗。
-- コンテナ内configure / カーネルのフルビルド / 実機起動 / Cilium / Envoy: 未検証。
-- したがって、このキットは未検証部分を含みます。配布カーネルが完成済みという意味ではありません。
+- Bash構文検査とPython標準ライブラリの10テスト: 実行済み・成功。
+- Dockerイメージ作成・configure・ARM64フルビルド・パッケージ作成は初回のActions runで成功。ただし、メタデータのカーネル識別名に不一致が見つかったため修正を追加した。
+- 識別名修正後のビルド可否は、現在のコミットに対応する `Kernel build` のActions結果で確認すること。初回runの成功を後続コミットの検証済み扱いにしない。
+- 実機起動 / Cilium / Envoyは未検証。ビルド成功は導入可能・安全なカーネルの保証ではない。
 
 ## 前提・初期設定
 
@@ -26,18 +26,11 @@ Docker内だけにツールを入れ、ARM64 Raspberry Pi用カーネルを作�
 
 ## Windows PowerShellからの使い方
 
-この非公開リポジトリにアクセスできるGitHubアカウントで、リポジトリを取得してDockerfileがあるフォルダーに移動する。
+リポジトリを取得してDockerfileがあるフォルダーに移動する。Publicのため、cloneにGitHub認証は不要。
 Gitがインストール済みなら、以下を実行する。Gitを入れたくなければ、GitHubの「Code → Download ZIP」で取得して展開してもよい。
 
 ```powershell
 git clone https://github.com/eeekcct/raspi-kernel-builder.git
-cd raspi-kernel-builder
-```
-
-PRをマージする前に試す場合は、PRのブランチ `feat/docker-kernel-builder` を取得する。上のcloneをまだ実行していなければ、以下を使う。
-
-```powershell
-git clone --branch feat/docker-kernel-builder https://github.com/eeekcct/raspi-kernel-builder.git
 cd raspi-kernel-builder
 ```
 
@@ -111,6 +104,16 @@ Linuxではコンテナがrootで出力を作成する。必要なら成功後�
 ただしベースの `ubuntu:24.04` とAPTパッケージは更新されるため、バイト単位の完全再現性は保証しない。
 検証後にベースイメージdigest/ビルド済みbuilderイメージのdigestも固定する運用が望ましい。
 ソース変更時は `kernel.commit` を更新してイメージを再ビルドする。環境変数 `KERNEL_COMMIT` での指定も可能だが、ブランチ名は受け付けない。
+
+## GitHub Actionsでのビルド検証
+
+`Kernel build` ワークフローは対象ファイルのPR / mainへのpushで起動し、main反映後は手動起動もできる。
+Ubuntu上でDockerイメージを作成し、configure、ARM64カーネル本体・全モジュール・DTBのビルド、パッケージ作成、チェックサム検証まで行う。
+初期対象は `bcm2711_defconfig` のみ。Pi 5向け16KiB版のビルド成功を保証するものではない。
+ビルド並列数はGitHub runnerの `nproc` を使用し、ジョブの上限は180分。
+ログ・最終設定・ビルド情報・BTFセクションの検査結果は7日保持のActions artifactに保存する。
+**Release・タグ・Dockerイメージの公開はしない。カーネルのバイナリもartifactとして公開しない。実機への導入は行わない。**
+ビルド成功は実機起動・Cilium/Envoy動作成功とは別。検証結果は実際のActions runで確認する。
 
 ## ローカルテスト
 
